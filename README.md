@@ -2,37 +2,129 @@
 
 Runnable **Go** HTTP service: **Part 1** (rate-limited API) and **Part 2** (product catalog) in one process on port **8080**.
 
-## Requirements
+## Setup
 
-- Go **1.22+** (uses `http.ServeMux` method routing and `PathValue`)
+### Prerequisites
 
-## Quick start
+- **Go 1.22+** (method-based `http.ServeMux` routes and `PathValue` for product ids)
+- No database, Redis, or Docker required for local run
+
+### Run the server
+
+From the repository root:
 
 ```bash
 go run ./cmd/server
-# or
+```
+
+Or:
+
+```bash
 make run
 ```
 
-Base URL: `http://localhost:8080`
+The server listens on **`http://localhost:8080`** by default (`ADDR=:8080`).
 
-Build a binary:
+Build a standalone binary:
 
 ```bash
-make build    # → bin/server
+make build
+./bin/server
 ```
 
-## Verify
+### Verify
 
-In a second terminal (server must be running):
+With the server running, open a second terminal:
 
 ```bash
+chmod +x scripts/e2e-smoke.sh   # once, if needed
 ./scripts/e2e-smoke.sh
 ```
 
-The script checks Part 1 (rate limit, stats, validation) and Part 2 (create, list shape, detail, media append, error codes).
+Optional: point at another host/port:
 
-For layering, concurrency, and data flow, see **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**.
+```bash
+BASE_URL=http://127.0.0.1:8080 ./scripts/e2e-smoke.sh
+```
+
+The script exercises rate limiting, stats, product CRUD, list-vs-detail shape, media append, and common error responses.
+
+### Configuration (environment)
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `ADDR` | `:8080` | Listen address |
+| `MAX_REQUESTS_PER_MINUTE` | `5` | Rate limit per user per window |
+| `WINDOW_MILLIS` | `60000` | Rolling window (ms) |
+| `MAX_URLS_PER_REQUEST` | `20` | Max URLs per array per request |
+| `MAX_URL_LENGTH` | `2048` | Max characters per URL |
+| `DEFAULT_LIMIT` | `20` | Default `GET /products` page size |
+| `MAX_LIMIT` | `100` | Max `limit` query param |
+
+Example:
+
+```bash
+export MAX_REQUESTS_PER_MINUTE=10
+export WINDOW_MILLIS=30000
+go run ./cmd/server
+```
+
+Further design detail: **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**.
+
+---
+
+## Assumptions
+
+### General
+
+- **Single process** — one binary serves Part 1 and Part 2; all state is in memory.
+- **No authentication** — `user_id` (Part 1) and all catalog endpoints are open; callers are trusted for identity.
+- **JSON only** — `Content-Type: application/json` on request bodies where a body is required.
+- **Graceful shutdown** — `SIGINT` / `SIGTERM` triggers a bounded HTTP shutdown (10s); in-flight work is not drained beyond that.
+
+### Part 1 — rate limiting
+
+- **Rolling window** — not fixed clock-minute buckets; old admissions fall out after `WINDOW_MILLIS`.
+- **`user_id` is opaque** — any non-blank string after trim; no format validation.
+- **`payload` is validated but not stored** — must be present, non-null JSON; the limiter only counts admissions.
+- **Success status is 200** — assignment allows 200 or 201; this implementation uses **200** for accepted requests.
+- **`total_rejected` is lifetime** — cumulative 429 count per user, not “rejects in current window”.
+- **`Retry-After`** — set to the full window length in seconds when rate limited, not the exact time until the next slot opens.
+- **Per-user serialization** — one mutex per user for timestamp deque updates; map of users guarded separately.
+
+### Part 2 — product catalog
+
+- **Media is URL-only** — `http://` or `https://` strings; no multipart upload, base64, or binary storage in the API.
+- **Product ids are UUID v4** — invalid id format → **400**; valid id but missing row → **404**.
+- **SKU is unique** — duplicate on create → **409**; SKU is not updatable via a separate endpoint.
+- **Empty media on create is allowed** — `image_urls` / `video_urls` may be omitted or `[]`; URL rules apply only when arrays are non-empty.
+- **Append media** — at least one non-empty `image_urls` or `video_urls` array required on `POST /products/{id}/media`.
+- **List vs detail** — list returns summaries (`image_count`, `video_count`, optional `thumbnail_url`); detail returns full URL arrays.
+- **Pagination** — `offset` / `limit` with defaults; list sorted by `created_at` then `id`.
+
+---
+
+## Tradeoffs
+
+| Area | Choice | Why | Cost |
+|------|--------|-----|------|
+| **Persistence** | In-memory maps | Simple, fast for assignment scope | Data lost on restart; not multi-instance |
+| **Rate limit store** | Per-user mutex + timestamp slice | Correct sliding window under concurrency without one global lock | Memory grows with distinct `user_id`s; `GET /stats` scans all users |
+| **Catalog store** | `byID` + `bySKU` maps, URL slices on `Product` | O(1) lookup, straightforward cloning | List sorts entire catalog in memory before slicing a page |
+| **List response** | `ListItem` without full URL arrays | Meets performance requirement (e.g. 1k×10 images → ≤20 thumbnails in JSON, not 10k URLs) | Clients need a second request for full media |
+| **List pagination** | Sort all products, then `[offset:limit]` | Easy to implement in one process | O(n) per list request on catalog size, not O(page size) |
+| **Error shape** | Shared JSON envelope + `path` | Consistent client handling | Slightly more verbose than plain text errors |
+| **Part 1 layout** | Handler + limiter in one package | Small domain; fewer files | Less symmetry with Part 2’s handler → service → store |
+| **Part 2 layout** | Handler → service → store | Clear validation and HTTP separation | More layers for a small feature set |
+| **Config** | Environment variables with defaults | No config file dependency | Invalid env ints silently fall back to defaults |
+| **Production path** | Documented PostgreSQL + CDN + Redis | Keeps assignment scope small while showing scale path | Not implemented in this repo |
+
+### Known limitations (current build)
+
+- Not horizontally scalable without **Redis** (rate limits) and **PostgreSQL** (catalog).
+- **`GET /stats`** returns every user with no pagination.
+- **No rate limit on catalog endpoints** — only `POST /request` is throttled.
+- **No delete/update product** — create, read, list, append media only.
 
 ---
 
@@ -366,20 +458,6 @@ Rate limits (Part 1) would move to **Redis** (e.g. sorted-set sliding window) so
 
 ---
 
-## Configuration
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `ADDR` | `:8080` | Listen address |
-| `MAX_REQUESTS_PER_MINUTE` | `5` | Rate limit per user per window |
-| `WINDOW_MILLIS` | `60000` | Rolling window length (ms) |
-| `MAX_URLS_PER_REQUEST` | `20` | Max URLs per array in one request |
-| `MAX_URL_LENGTH` | `2048` | Max characters per URL |
-| `DEFAULT_LIMIT` | `20` | Default page size for `GET /products` |
-| `MAX_LIMIT` | `100` | Maximum `limit` query param |
-
----
-
 ## Project structure
 
 ```
@@ -404,17 +482,6 @@ Rate limits (Part 1) would move to **Redis** (e.g. sorted-set sliding window) so
 | **service** | Business rules and validation (product) |
 | **limiter / store** | In-memory state and locking |
 | **model / types** | Domain and API shapes |
-
----
-
-## Production limitations (current build)
-
-- **Single process** — catalog and rate-limit state are in RAM; restart clears everything.
-- **Not horizontally scalable** — need Redis (Part 1) and PostgreSQL (Part 2) as described above.
-- **No authentication** — `user_id` is taken from the client as-is.
-- **`GET /stats`** — scans all users; needs pagination or metrics export at scale.
-- **In-memory list** — paginates response size correctly, but sorts the full in-memory catalog on each list request.
-- **`Retry-After`** — seconds equal to full window length, not exact time until a slot frees.
 
 ---
 
