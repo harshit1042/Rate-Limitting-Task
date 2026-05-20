@@ -241,6 +241,129 @@ At least one of `image_urls` or `video_urls` must be non-empty.
 | `limit` | `20` | `100` |
 | `offset` | `0` | — |
 
+### Data model (in-memory)
+
+Products and media live in a single in-memory store (`internal/product/store.go`). There is no separate “media table” — images and videos are URL string slices on each product.
+
+```
+Store
+  mu    sync.RWMutex
+  byID  map[UUID]*Product      // primary index: id → product
+  bySKU map[string]UUID        // secondary index: sku → id (duplicate check)
+
+Product (one row per catalog item)
+  id, name, sku, created_at
+  image_urls []string          // e.g. https://cdn.example.com/.../1.jpg
+  video_urls []string          // e.g. https://cdn.example.com/.../demo.mp4
+```
+
+| Aspect | How it works |
+|--------|----------------|
+| **Storage** | Each `Product` holds `image_urls` and `video_urls` as `[]string` in RAM |
+| **Lookup by id** | `byID[id]` → full product |
+| **Lookup by sku** | `bySKU[sku]` → id, then `byID` (create rejects duplicate SKU with **409**) |
+| **Concurrency** | `sync.RWMutex`: shared lock for reads, exclusive lock for writes |
+| **Safety** | `GetByID`, `Create`, and `AppendMedia` return **clones** so callers cannot mutate internal maps |
+| **No uploads** | API accepts URL strings only — no binary files or base64 in the request body |
+
+### List vs detail (how queries differ)
+
+The API uses two response shapes on purpose: a **summary** for grids and a **full product** when you open one item.
+
+| | `GET /products` (list) | `GET /products/{id}` (detail) |
+|--|------------------------|-------------------------------|
+| **JSON type** | `ListItem` inside `items[]` | `Product` |
+| **`image_urls` / `video_urls`** | **Not included** | Full arrays |
+| **`image_count` / `video_count`** | Yes | Use array lengths on detail |
+| **`thumbnail_url`** | First image URL only (if any) | N/A |
+| **Store path** | `ListPage` → `toListItem` per row on the page | `GetByID` → `cloneProduct` |
+| **Typical use** | Product grid, search results | Product page, edit form |
+
+**List flow (`GET /products?limit=20&offset=0`):**
+
+1. Parse `limit` / `offset` (defaults 20 / 0, max limit 100).
+2. Sort products by `created_at`, then `id`.
+3. Take only the page slice (`offset` … `offset+limit`).
+4. For each row on that page, build a `ListItem`: `len(image_urls)`, `len(video_urls)`, and optionally `thumbnail_url` = first image.
+5. Serialize **only** those summary fields — never the full URL lists.
+
+**Detail flow (`GET /products/{id}`):**
+
+1. Load one product from `byID`.
+2. Return a defensive copy with **all** `image_urls` and `video_urls`.
+
+Create (`POST /products`) and append media (`POST /products/{id}/media`) return the **detail** shape (full arrays), same as `GET /products/{id}`.
+
+### List performance (1,000 products × 10 images)
+
+Suppose the catalog has **1,000 products** and each has **10 image URLs** stored (10,000 URL strings in memory total).
+
+`GET /products?limit=20` must **not** load or serialize all 10,000 image URLs in the HTTP response. This service satisfies that:
+
+| What happens | Count for this example |
+|--------------|-------------------------|
+| URLs stored in RAM (normal catalog size) | 10,000 (across all products) |
+| Products included in JSON `items` | 20 |
+| Full `image_urls` arrays in list JSON | **0** |
+| `thumbnail_url` strings in list JSON | **≤ 20** (one per list row, first image only) |
+| URL strings in list JSON (thumbnails only) | **≤ 20**, not 10,000 |
+
+So the list endpoint returns only what a grid needs: metadata, counts, and at most one preview URL per visible row. Clients that need every image call `GET /products/{id}` for that product.
+
+**In-memory caveat:** The current store sorts all product pointers to paginate. That touches every product record for ordering but still builds and serializes **only the current page** of summaries. With PostgreSQL (below), sorting and pagination move into the database so the app does not need to walk the full catalog in memory.
+
+### Production: PostgreSQL + CDN
+
+Today everything is in one process and one machine’s RAM. For production you would keep the **same API contract** (list summaries vs detail URLs) but change persistence and asset delivery:
+
+**CDN (assets)**
+
+- Images and videos are served by a **CDN** (CloudFront, Cloudflare, etc.).
+- The API stores and returns **URLs only** — same as now. No file bytes through the catalog API.
+- Upload flows (out of scope for this assignment) would write to object storage (S3) and register the CDN URL in the catalog.
+
+**PostgreSQL (catalog)**
+
+| Table | Purpose |
+|-------|---------|
+| `products` | `id`, `name`, `sku` (unique), `created_at` |
+| `product_media` | `product_id`, `type` (`image` \| `video`), `url`, `sort_order` |
+
+**List query (grid)** — do not `SELECT url` for every row:
+
+```sql
+SELECT p.id, p.name, p.sku, p.created_at,
+       COUNT(*) FILTER (WHERE m.type = 'image') AS image_count,
+       COUNT(*) FILTER (WHERE m.type = 'video') AS video_count,
+       (SELECT url FROM product_media
+        WHERE product_id = p.id AND type = 'image'
+        ORDER BY sort_order LIMIT 1) AS thumbnail_url
+FROM products p
+LEFT JOIN product_media m ON m.product_id = p.id
+GROUP BY p.id
+ORDER BY p.created_at, p.id
+LIMIT $1 OFFSET $2;
+```
+
+**Detail query** — one product, all URLs:
+
+```sql
+SELECT url FROM product_media
+WHERE product_id = $1 AND type = 'image'
+ORDER BY sort_order;
+-- same for video
+```
+
+| Concern | In-memory (this repo) | PostgreSQL + CDN |
+|---------|----------------------|------------------|
+| Durability | Lost on restart | Durable |
+| Horizontal scale | Single instance | Multiple API instances, shared DB |
+| List payload | `ListItem` summaries | Same JSON shape; SQL aggregates counts |
+| Media bytes | Not stored in API | CDN serves files; DB holds URLs |
+| Hot lists | N/A | Optional Redis cache for popular `limit`/`offset` pages |
+
+Rate limits (Part 1) would move to **Redis** (e.g. sorted-set sliding window) so all instances share per-user counters. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for handler layering and concurrency diagrams.
+
 ---
 
 ## Configuration
@@ -284,15 +407,14 @@ At least one of `image_urls` or `video_urls` must be non-empty.
 
 ---
 
-## Production limitations
+## Production limitations (current build)
 
-- **Single process** — state is in RAM; restart clears rate limits and products.
-- **Not horizontally scalable** without shared storage (e.g. Redis for limits, PostgreSQL for catalog).
+- **Single process** — catalog and rate-limit state are in RAM; restart clears everything.
+- **Not horizontally scalable** — need Redis (Part 1) and PostgreSQL (Part 2) as described above.
 - **No authentication** — `user_id` is taken from the client as-is.
 - **`GET /stats`** — scans all users; needs pagination or metrics export at scale.
+- **In-memory list** — paginates response size correctly, but sorts the full in-memory catalog on each list request.
 - **`Retry-After`** — seconds equal to full window length, not exact time until a slot frees.
-
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for a scaling roadmap and detailed concurrency notes.
 
 ---
 
