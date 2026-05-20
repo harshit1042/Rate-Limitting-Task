@@ -30,7 +30,7 @@ In a second terminal (server must be running):
 ./scripts/e2e-smoke.sh
 ```
 
-The script checks Part 1 (rate limit, stats, validation) and Part 2 (create, list shape, detail, media append, error codes). Last run: **24 assertions, all passing**.
+The script checks Part 1 (rate limit, stats, validation) and Part 2 (create, list shape, detail, media append, error codes).
 
 For layering, concurrency, and data flow, see **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**.
 
@@ -384,16 +384,16 @@ Rate limits (Part 1) would move to **Redis** (e.g. sorted-set sliding window) so
 
 ```
 .
-├── cmd/server/              # Entrypoint, graceful shutdown
+├── cmd/server/
 ├── internal/
-│   ├── config/              # Environment configuration
-│   ├── server/              # HTTP router (wires handlers)
-│   ├── httpx/               # JSON encode/decode helpers
-│   ├── id/                  # UUID utilities
-│   ├── ratelimit/           # Part 1: limiter + HTTP handler
-│   └── product/             # Part 2: model, store, service, handler
-├── scripts/e2e-smoke.sh     # End-to-end smoke tests
-├── docs/ARCHITECTURE.md     # Design, flows, concurrency
+│   ├── config/
+│   ├── server/
+│   ├── httpx/
+│   ├── id/
+│   ├── ratelimit/
+│   └── product/
+├── scripts/e2e-smoke.sh
+├── docs/ARCHITECTURE.md
 ├── Makefile
 └── go.mod
 ```

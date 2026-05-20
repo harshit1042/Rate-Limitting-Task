@@ -11,14 +11,12 @@ import (
 	"github.com/ratelimit/api/internal/id"
 )
 
-// Service implements catalog business rules (validation + store orchestration).
 type Service struct {
 	cfg   config.Config
 	store *Store
 	clock func() time.Time
 }
 
-// NewService creates a catalog service backed by an in-memory store.
 func NewService(cfg config.Config, store *Store) *Service {
 	return &Service{
 		cfg:   cfg,
@@ -27,7 +25,6 @@ func NewService(cfg config.Config, store *Store) *Service {
 	}
 }
 
-// Create validates input and persists a new product.
 func (s *Service) Create(name, sku string, imageURLs, videoURLs []string) (*Product, error) {
 	name = strings.TrimSpace(name)
 	sku = strings.TrimSpace(sku)
@@ -48,12 +45,10 @@ func (s *Service) Create(name, sku string, imageURLs, videoURLs []string) (*Prod
 	return p, err
 }
 
-// Get returns one product by id.
 func (s *Service) Get(productID id.UUID) (*Product, error) {
 	return s.store.GetByID(productID)
 }
 
-// List returns a paginated summary page. Empty limit/offset strings use defaults.
 func (s *Service) List(limitStr, offsetStr string) ([]ListItem, int, int, int, error) {
 	limit := s.cfg.DefaultLimit
 	offset := 0
@@ -86,7 +81,6 @@ func (s *Service) List(limitStr, offsetStr string) ([]ListItem, int, int, int, e
 	return items, limit, offset, total, nil
 }
 
-// AppendMedia validates and appends URL batches to a product.
 func (s *Service) AppendMedia(productID id.UUID, imageURLs, videoURLs []string) (*Product, error) {
 	images, videos, err := s.normalizeAndValidateURLs(imageURLs, videoURLs)
 	if err != nil {

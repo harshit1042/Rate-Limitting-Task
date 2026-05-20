@@ -6,7 +6,6 @@ import (
 	"github.com/ratelimit/api/internal/id"
 )
 
-// Product is a catalog item with URL-only media (no binary uploads).
 type Product struct {
 	ID        id.UUID   `json:"id"`
 	Name      string    `json:"name"`
@@ -16,7 +15,6 @@ type Product struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
-// ListItem is a paginated grid row without full media arrays.
 type ListItem struct {
 	ID           id.UUID   `json:"id"`
 	Name         string    `json:"name"`
@@ -27,7 +25,6 @@ type ListItem struct {
 	CreatedAt    time.Time `json:"created_at"`
 }
 
-// listPage is the JSON body for GET /products.
 type listPage struct {
 	Items      []ListItem `json:"items"`
 	Limit      int        `json:"limit"`

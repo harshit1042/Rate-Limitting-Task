@@ -9,10 +9,8 @@ import (
 	"strings"
 )
 
-// UUID is a 128-bit identifier (RFC 4122 version 4).
 type UUID [16]byte
 
-// New generates a random UUID v4.
 func New() UUID {
 	var u UUID
 	_, _ = rand.Read(u[:])
@@ -21,7 +19,6 @@ func New() UUID {
 	return u
 }
 
-// Parse parses canonical 8-4-4-4-12 UUID strings.
 func Parse(s string) (UUID, error) {
 	s = strings.TrimSpace(s)
 	if len(s) != 36 || s[8] != '-' || s[13] != '-' || s[18] != '-' || s[23] != '-' {
@@ -37,17 +34,14 @@ func Parse(s string) (UUID, error) {
 	return u, nil
 }
 
-// String returns canonical UUID text.
 func (u UUID) String() string {
 	return fmt.Sprintf("%x-%x-%x-%x-%x", u[0:4], u[4:6], u[6:8], u[8:10], u[10:16])
 }
 
-// MarshalJSON encodes the UUID as a JSON string.
 func (u UUID) MarshalJSON() ([]byte, error) {
 	return json.Marshal(u.String())
 }
 
-// UnmarshalJSON decodes a JSON string UUID.
 func (u *UUID) UnmarshalJSON(b []byte) error {
 	var s string
 	if err := json.Unmarshal(b, &s); err != nil {

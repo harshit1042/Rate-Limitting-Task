@@ -6,7 +6,6 @@ import (
 	"time"
 )
 
-// Config holds runtime settings for both assignment parts.
 type Config struct {
 	Addr                   string
 	MaxRequestsPerMinute   int
@@ -17,7 +16,6 @@ type Config struct {
 	MaxLimit               int
 }
 
-// Load reads configuration from environment with sensible defaults.
 func Load() Config {
 	return Config{
 		Addr:                 env("ADDR", ":8080"),

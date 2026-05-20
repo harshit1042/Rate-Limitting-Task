@@ -8,12 +8,10 @@ import (
 	"github.com/ratelimit/api/internal/id"
 )
 
-// Handler exposes Part 2 HTTP endpoints.
 type Handler struct {
 	service *Service
 }
 
-// NewHandler creates the product HTTP handler.
 func NewHandler(service *Service) *Handler {
 	return &Handler{service: service}
 }
@@ -30,7 +28,6 @@ type appendRequest struct {
 	VideoURLs []string `json:"video_urls"`
 }
 
-// Create handles POST /products.
 func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 	req, err := httpx.DecodeJSON[createRequest](r)
 	if err != nil {
@@ -42,7 +39,6 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 	writeResult(w, r, http.StatusCreated, p, err)
 }
 
-// List handles GET /products.
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	items, limit, offset, total, err := h.service.List(q.Get("limit"), q.Get("offset"))
@@ -58,7 +54,6 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// Get handles GET /products/{id}.
 func (h *Handler) Get(w http.ResponseWriter, r *http.Request, productID id.UUID) {
 	p, err := h.service.Get(productID)
 	if errors.Is(err, ErrNotFound) {
@@ -68,7 +63,6 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request, productID id.UUID)
 	writeResult(w, r, http.StatusOK, p, err)
 }
 
-// AppendMedia handles POST /products/{id}/media.
 func (h *Handler) AppendMedia(w http.ResponseWriter, r *http.Request, productID id.UUID) {
 	req, err := httpx.DecodeJSON[appendRequest](r)
 	if err != nil {

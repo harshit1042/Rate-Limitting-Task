@@ -7,7 +7,6 @@ import (
 	"net/http"
 )
 
-// DecodeJSON reads and unmarshals a JSON request body (max 1 MiB).
 func DecodeJSON[T any](r *http.Request) (T, error) {
 	var zero T
 	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))

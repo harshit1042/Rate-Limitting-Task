@@ -6,7 +6,6 @@ import (
 	"time"
 )
 
-// ErrorBody is the standard JSON error envelope.
 type ErrorBody struct {
 	Timestamp time.Time `json:"timestamp"`
 	Status    int       `json:"status"`
@@ -15,7 +14,6 @@ type ErrorBody struct {
 	Path      string    `json:"path"`
 }
 
-// WriteError sends a JSON error response.
 func WriteError(w http.ResponseWriter, r *http.Request, status int, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
@@ -28,7 +26,6 @@ func WriteError(w http.ResponseWriter, r *http.Request, status int, message stri
 	})
 }
 
-// WriteJSON sends a JSON response with the given status code.
 func WriteJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)

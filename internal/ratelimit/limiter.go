@@ -6,7 +6,6 @@ import (
 	"time"
 )
 
-// Limiter enforces a rolling per-user request window in memory.
 type Limiter struct {
 	maxPerWindow int
 	window       time.Duration
@@ -23,7 +22,6 @@ type userState struct {
 	rejected   int64
 }
 
-// NewLimiter creates an in-memory sliding-window limiter.
 func NewLimiter(maxPerWindow int, window time.Duration) *Limiter {
 	return &Limiter{
 		maxPerWindow: maxPerWindow,
@@ -33,7 +31,6 @@ func NewLimiter(maxPerWindow int, window time.Duration) *Limiter {
 	}
 }
 
-// TryAccept records a request when capacity remains.
 func (l *Limiter) TryAccept(userID string) (requestsInWindow int, allowed bool) {
 	st := l.stateFor(userID)
 	st.lock.Lock()
@@ -50,7 +47,6 @@ func (l *Limiter) TryAccept(userID string) (requestsInWindow int, allowed bool) 
 	return len(st.timestamps), true
 }
 
-// Snapshot returns all user stats sorted by user_id.
 func (l *Limiter) Snapshot() []UserStats {
 	l.mu.Lock()
 	ids := make([]string, 0, len(l.users))
@@ -79,7 +75,6 @@ func (l *Limiter) Snapshot() []UserStats {
 	return out
 }
 
-// WindowDuration exposes the configured window (for Retry-After).
 func (l *Limiter) WindowDuration() time.Duration {
 	return l.window
 }

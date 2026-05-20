@@ -10,17 +10,14 @@ import (
 	"github.com/ratelimit/api/internal/httpx"
 )
 
-// Handler exposes Part 1 HTTP endpoints.
 type Handler struct {
 	limiter *Limiter
 }
 
-// NewHandler wires the limiter into HTTP handlers.
 func NewHandler(limiter *Limiter) *Handler {
 	return &Handler{limiter: limiter}
 }
 
-// PostRequest handles POST /request.
 func (h *Handler) PostRequest(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
 	if err != nil {
@@ -60,7 +57,6 @@ func (h *Handler) PostRequest(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// GetStats handles GET /stats.
 func (h *Handler) GetStats(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, StatsResponse{Users: h.limiter.Snapshot()})
 }

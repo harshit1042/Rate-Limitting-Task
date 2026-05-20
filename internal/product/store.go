@@ -8,14 +8,12 @@ import (
 	"github.com/ratelimit/api/internal/id"
 )
 
-// Store is the in-memory product repository.
 type Store struct {
 	mu    sync.RWMutex
 	byID  map[id.UUID]*Product
 	bySKU map[string]id.UUID
 }
 
-// NewStore creates an empty repository.
 func NewStore() *Store {
 	return &Store{
 		byID:  make(map[id.UUID]*Product),
@@ -23,7 +21,6 @@ func NewStore() *Store {
 	}
 }
 
-// Create inserts a new product; caller must hold validation responsibility.
 func (s *Store) Create(name, sku string, imageURLs, videoURLs []string, now time.Time) (*Product, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -45,7 +42,6 @@ func (s *Store) Create(name, sku string, imageURLs, videoURLs []string, now time
 	return cloneProduct(p), nil
 }
 
-// GetByID returns a defensive copy of the product.
 func (s *Store) GetByID(productID id.UUID) (*Product, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -56,7 +52,6 @@ func (s *Store) GetByID(productID id.UUID) (*Product, error) {
 	return cloneProduct(p), nil
 }
 
-// ListPage returns summary rows for one page (sorted by created_at, then id).
 func (s *Store) ListPage(offset, limit int) ([]ListItem, int) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -88,7 +83,6 @@ func (s *Store) ListPage(offset, limit int) ([]ListItem, int) {
 	return out, total
 }
 
-// AppendMedia mutates stored URL slices for a product.
 func (s *Store) AppendMedia(productID id.UUID, imageURLs, videoURLs []string) (*Product, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

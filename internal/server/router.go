@@ -10,7 +10,6 @@ import (
 	"github.com/ratelimit/api/internal/ratelimit"
 )
 
-// NewRouter returns the full assignment HTTP handler (Part 1 + Part 2).
 func NewRouter(cfg config.Config) http.Handler {
 	limiter := ratelimit.NewLimiter(cfg.MaxRequestsPerMinute, cfg.Window)
 	rateHandler := ratelimit.NewHandler(limiter)

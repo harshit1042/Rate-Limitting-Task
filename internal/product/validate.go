@@ -8,7 +8,6 @@ import (
 	"github.com/ratelimit/api/internal/config"
 )
 
-// ValidateURLBatch checks optional URL lists for create/append requests.
 func ValidateURLBatch(cfg config.Config, field string, urls []string) error {
 	if len(urls) == 0 {
 		return nil
